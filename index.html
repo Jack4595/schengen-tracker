@@ -92,7 +92,7 @@
   .bar-fill.warn { background: var(--warn); }
   .bar-fill.crit { background: var(--crit); }
 
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .stat { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; }
   .stat .k { font-size: 11.5px; color: var(--text-3); margin-bottom: 2px; }
   .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -223,7 +223,8 @@
     <div class="stats">
       <div class="stat"><div class="k">Max stay from today</div><div class="v" id="maxStay">90 <small>days</small></div></div>
       <div class="stat"><div class="k">Latest exit date</div><div class="v" id="latestExit">—</div></div>
-      <div class="stat"><div class="k">Next full 90</div><div class="v" id="nextFull90">—</div></div>
+      <div class="stat"><div class="k">Next full 90 (Safe)</div><div class="v" id="nextFull90Safe">—</div></div>
+      <div class="stat"><div class="k">Next full 90 (Legal)</div><div class="v" id="nextFull90Legal">—</div></div>
     </div>
   </div>
 
@@ -429,11 +430,18 @@
     $('maxStay').innerHTML = maxStay + ' <small>day' + (maxStay === 1 ? '' : 's') + '</small>';
     // Latest exit: last allowed day if staying continuously from today
     $('latestExit').textContent = maxStay > 0 ? fmtSmart(today + maxStay - 1) : '—';
-    // Next full 90: when every tracked day (incl. future trips) has left the window
+    // Next full 90 (Safe): window completely empty — every tracked day
+    // (incl. future trips) has left the 180-day look-back
     var lastPresent = -Infinity;
     for (var k in set) { if (+k > lastPresent) lastPresent = +k; }
-    $('nextFull90').textContent = (lastPresent === -Infinity || lastPresent + WINDOW <= today)
-      ? 'Now' : fmtSmart(lastPresent + WINDOW);
+    var safeDate = (lastPresent === -Infinity) ? today : lastPresent + WINDOW;
+    $('nextFull90Safe').textContent = safeDate <= today ? 'Now' : fmtSmart(safeDate);
+    // Next full 90 (Legal): earliest start of an unbroken 90-day stay that
+    // never breaches the rolling limit on any day of the stay. The Safe date
+    // always qualifies, so the scan is bounded by it.
+    var legalDate = today;
+    while (legalDate < safeDate && maxContinuousStay(legalDate, set) < LIMIT) legalDate++;
+    $('nextFull90Legal').textContent = legalDate <= today ? 'Now' : fmtSmart(legalDate);
 
     renderStrip(winStart, today, counted);
     renderCounted(winStart, today, set);
