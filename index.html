@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0c">
+<title>Schengen Tracker</title>
+<style>
+  :root {
+    --bg: #0a0a0c;
+    --surface: #131316;
+    --surface-2: #1a1a1f;
+    --border: #26262c;
+    --border-subtle: #1e1e24;
+    --text: #f4f4f5;
+    --text-2: #a1a1aa;
+    --text-3: #63636b;
+    --accent: #5eead4;
+    --safe: #34d399;
+    --warn: #fbbf24;
+    --crit: #f87171;
+    --safe-dim: rgba(52, 211, 153, .12);
+    --warn-dim: rgba(251, 191, 36, .12);
+    --crit-dim: rgba(248, 113, 113, .12);
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: max(20px, env(safe-area-inset-top)) 16px max(40px, env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 560px; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 20px; padding: 0 4px;
+  }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  header .today { font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+  .sync { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+  .sync .dot-s { width: 7px; height: 7px; border-radius: 99px; background: var(--text-3); transition: background-color 250ms ease; }
+  .sync.synced .dot-s { background: var(--safe); }
+  .sync.syncing .dot-s { background: var(--warn); animation: syncPulse 900ms ease infinite alternate; }
+  .sync.error .dot-s { background: var(--crit); }
+  @keyframes syncPulse { from { opacity: 1; } to { opacity: .35; } }
+
+  .sync-id-row { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 10px; padding: 8px 8px 8px 12px; margin-bottom: 10px; }
+  .sync-id-row code { flex: 1; font-size: 12.5px; color: var(--text-2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .field-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .field-row input { flex: 1; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 12px;
+    opacity: 1; transform: translateY(0);
+    transition: opacity 350ms var(--ease-out), transform 350ms var(--ease-out);
+    @starting-style { opacity: 0; transform: translateY(8px); }
+  }
+
+  /* ---- Status card ---- */
+  .status-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+  .big-num { font-size: 44px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .big-num .of { font-size: 17px; font-weight: 500; color: var(--text-3); letter-spacing: 0; }
+  .status-label { font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .badge {
+    font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 99px;
+    letter-spacing: 0.02em;
+    transition: background-color 250ms ease, color 250ms ease;
+  }
+  .badge.safe { background: var(--safe-dim); color: var(--safe); }
+  .badge.warn { background: var(--warn-dim); color: var(--warn); }
+  .badge.crit { background: var(--crit-dim); color: var(--crit); }
+
+  .bar {
+    height: 6px; background: var(--surface-2); border-radius: 99px; overflow: hidden; margin-bottom: 16px;
+  }
+  .bar-fill {
+    height: 100%; width: 100%; border-radius: 99px; background: var(--safe);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 500ms var(--ease-in-out), background-color 250ms ease;
+  }
+  .bar-fill.warn { background: var(--warn); }
+  .bar-fill.crit { background: var(--crit); }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat { background: var(--surface-2); border-radius: 12px; padding: 12px 14px; }
+  .stat .k { font-size: 11.5px; color: var(--text-3); margin-bottom: 2px; }
+  .stat .v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .stat .v small { font-weight: 400; color: var(--text-2); font-size: 12.5px; }
+
+  /* ---- Window strip ---- */
+  .section-title {
+    font-size: 12px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em;
+    margin: 4px 4px 10px; display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .section-title span.range { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .strip {
+    position: relative; height: 26px; background: var(--surface-2);
+    border-radius: 8px; overflow: hidden; margin-bottom: 10px;
+  }
+  .strip .seg {
+    position: absolute; top: 0; bottom: 0; background: var(--accent); opacity: .85;
+  }
+  .strip .today-mark { position: absolute; top: 0; bottom: 0; right: 0; width: 2px; background: var(--text); opacity: .5; }
+  .strip-legend { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; padding: 0 2px; }
+  .counted-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .counted-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13.5px; padding: 8px 12px; background: var(--surface-2); border-radius: 10px;
+  }
+  .counted-row .dates { color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .counted-row .n { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .counted-row .country { color: var(--text); margin-right: 8px; }
+  .empty-note { color: var(--text-3); font-size: 13.5px; text-align: center; padding: 12px 0 4px; }
+
+  /* ---- Form ---- */
+  form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  label { display: block; font-size: 11.5px; color: var(--text-3); margin-bottom: 5px; padding-left: 2px; }
+  input[type="date"], input[type="text"] {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); border-radius: 10px; padding: 10px 12px; font-size: 15px;
+    font-family: inherit; -webkit-appearance: none; appearance: none; min-height: 44px;
+    transition: border-color 150ms ease;
+    color-scheme: dark;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  .form-actions { display: flex; gap: 8px; margin-top: 4px; }
+
+  button {
+    font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    border: none; border-radius: 10px; padding: 11px 16px; min-height: 44px;
+    background: var(--surface-2); color: var(--text);
+    transition: transform 160ms var(--ease-out), background-color 150ms ease, opacity 150ms ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active { transform: scale(0.97); }
+  button.primary { background: var(--text); color: var(--bg); flex: 1; }
+  button.ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+  button.danger-text { background: transparent; color: var(--crit); padding: 8px 10px; min-height: 0; font-size: 13px; }
+  button.small { padding: 8px 10px; min-height: 0; font-size: 13px; color: var(--text-2); background: transparent; }
+  @media (hover: hover) and (pointer: fine) {
+    button.primary:hover { opacity: .9; }
+    button.ghost:hover, button.small:hover { background: var(--surface-2); }
+    button.danger-text:hover { background: var(--crit-dim); }
+  }
+
+  /* ---- Timeline ---- */
+  .trip {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 4px; border-bottom: 1px solid var(--border-subtle);
+    opacity: 1; transform: translateY(0);
+    transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out);
+    @starting-style { opacity: 0; transform: translateY(6px); }
+  }
+  .trip:last-child { border-bottom: none; }
+  .trip.removing { opacity: 0; transform: translateX(-12px); transition: opacity 180ms ease, transform 180ms ease; }
+  .trip .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--text-3); flex: none; }
+  .trip .dot.active-window { background: var(--accent); }
+  .trip .dot.current { background: var(--safe); box-shadow: 0 0 0 4px var(--safe-dim); }
+  .trip .info { flex: 1; min-width: 0; }
+  .trip .name { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trip .dates { font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+  .trip .days { font-size: 13px; font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums; flex: none; }
+  .trip .actions { display: flex; gap: 2px; flex: none; }
+
+  /* ---- Import/export ---- */
+  .io-row { display: flex; gap: 8px; }
+  .io-row button { flex: 1; }
+  .hint { font-size: 12px; color: var(--text-3); margin-top: 10px; text-align: center; }
+
+  /* ---- Toast ---- */
+  #toast {
+    position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(150%);
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); font-size: 13.5px; font-weight: 500;
+    padding: 10px 18px; border-radius: 99px; white-space: nowrap;
+    transition: transform 350ms var(--ease-out);
+    pointer-events: none; z-index: 10;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .card, .trip { transition: opacity 200ms ease; @starting-style { transform: none; } }
+    .bar-fill { transition: background-color 250ms ease; }
+    button:active { transform: none; }
+    #toast { transition: opacity 200ms ease; opacity: 0; transform: translateX(-50%); }
+    #toast.show { opacity: 1; transform: translateX(-50%); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Schengen Tracker</h1>
+    <div style="text-align:right">
+      <div class="today" id="todayLabel"></div>
+      <div class="sync" id="syncStatus"><span class="dot-s"></span><span id="syncText">Sync off</span></div>
+    </div>
+  </header>
+
+  <!-- Status -->
+  <div class="card" id="statusCard">
+    <div class="status-top">
+      <div>
+        <div class="status-label">Days used · rolling 180</div>
+        <div class="big-num"><span id="daysUsed">0</span><span class="of"> / 90</span></div>
+      </div>
+      <div class="badge safe" id="badge">Safe</div>
+    </div>
+    <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+    <div class="stats">
+      <div class="stat"><div class="k">Days remaining</div><div class="v" id="daysLeft">90</div></div>
+      <div class="stat"><div class="k">Next day frees up</div><div class="v" id="nextFree">—</div></div>
+      <div class="stat"><div class="k">Max stay from today</div><div class="v" id="maxStay">90 <small>days</small></div></div>
+      <div class="stat"><div class="k">Fully reset by</div><div class="v" id="fullReset">—</div></div>
+    </div>
+  </div>
+
+  <!-- Current window -->
+  <div class="card">
+    <div class="section-title">Current 180-day window <span class="range" id="windowRange"></span></div>
+    <div class="strip" id="strip"><div class="today-mark"></div></div>
+    <div class="strip-legend"><span id="windowStart"></span><span>today</span></div>
+    <div class="counted-list" id="countedList"></div>
+  </div>
+
+  <!-- Add / edit trip -->
+  <div class="card">
+    <div class="section-title" id="formTitle">Add trip</div>
+    <form id="tripForm">
+      <div class="row">
+        <div><label for="entry">Entry date</label><input type="date" id="entry" required></div>
+        <div><label for="exit">Exit date</label><input type="date" id="exit" required></div>
+      </div>
+      <div style="margin-bottom:12px"><label for="country">Country (optional)</label><input type="text" id="country" placeholder="e.g. France" autocomplete="off"></div>
+      <div class="form-actions">
+        <button type="submit" class="primary" id="submitBtn">Add trip</button>
+        <button type="button" class="ghost" id="cancelEdit" style="display:none">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Timeline -->
+  <div class="card">
+    <div class="section-title">Trips <span class="range" id="tripCount"></span></div>
+    <div id="tripList"></div>
+  </div>
+
+  <!-- Import / export -->
+  <div class="card">
+    <div class="io-row">
+      <button type="button" class="ghost" id="importBtn">Import CSV</button>
+      <button type="button" class="ghost" id="exportBtn">Export CSV</button>
+    </div>
+    <input type="file" id="fileInput" accept=".csv,text/csv" style="display:none">
+    <div class="hint">CSV format: entry, exit, country — dates as DD/MM/YYYY. Data is stored on this device; enable sync below to share it across devices.</div>
+  </div>
+
+  <!-- Sync setup -->
+  <div class="card">
+    <div class="section-title">Sync setup</div>
+    <div class="field-row">
+      <input type="text" id="apiKeyInput" placeholder="JSONBin API key" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="button" class="ghost" id="saveKeyBtn">Save</button>
+    </div>
+    <div class="sync-id-row" id="syncIdRow" style="display:none">
+      <code id="syncIdCode"></code>
+      <button type="button" class="small" id="copyIdBtn">Copy</button>
+    </div>
+    <div class="field-row">
+      <input type="text" id="linkIdInput" placeholder="Paste sync ID from another device" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="button" class="ghost" id="linkBtn">Link</button>
+    </div>
+    <div class="hint" id="syncHint">Create a free account at jsonbin.io, copy your access key, and paste it above on each device. The first device creates a sync ID; paste that ID on other devices to share the same trips.</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'schengen-trips-v1';
+  var WINDOW = 180, LIMIT = 90;
+  var MS_DAY = 86400000;
+
+  // ---------- Date helpers (all math on UTC day numbers to dodge DST) ----------
+  function toDayNum(y, m, d) { return Math.round(Date.UTC(y, m - 1, d) / MS_DAY); }
+  function todayNum() {
+    var n = new Date();
+    return toDayNum(n.getFullYear(), n.getMonth() + 1, n.getDate());
+  }
+  function fromDayNum(n) { return new Date(n * MS_DAY); }
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmtISO(n) {
+    var d = fromDayNum(n);
+    return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+  }
+  function fmtDMY(n) {
+    var d = fromDayNum(n);
+    return pad(d.getUTCDate()) + '/' + pad(d.getUTCMonth() + 1) + '/' + d.getUTCFullYear();
+  }
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtShort(n) {
+    var d = fromDayNum(n);
+    return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+  }
+  function fmtTiny(n) {
+    var d = fromDayNum(n);
+    return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()];
+  }
+  function parseISO(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    return m ? toDayNum(+m[1], +m[2], +m[3]) : null;
+  }
+  function parseDMY(s) {
+    var m = /^\s*(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})\s*$/.exec(s);
+    if (!m) return null;
+    var d = +m[1], mo = +m[2], y = +m[3];
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    var n = toDayNum(y, mo, d);
+    var back = fromDayNum(n);
+    if (back.getUTCDate() !== d || back.getUTCMonth() + 1 !== mo) return null;
+    return n;
+  }
+
+  // ---------- Storage ----------
+  function loadTrips() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.filter(function (t) {
+        return t && typeof t.entry === 'number' && typeof t.exit === 'number' && t.exit >= t.entry;
+      }) : [];
+    } catch (e) { return []; }
+  }
+  function saveTrips(fromRemote) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(trips)); }
+    catch (e) { showToast('Could not save — storage unavailable'); }
+    if (!fromRemote) { sync.dirty = true; sync.updatedAt = Date.now(); saveSyncState(); scheduleSync(); }
+  }
+
+  var trips = loadTrips();   // {id, entry, exit, country}
+  var editingId = null;
+
+  // ---------- Schengen math ----------
+  // Set of all present day numbers (entry & exit days both count; overlaps count once)
+  function presenceSet() {
+    var set = {};
+    for (var i = 0; i < trips.length; i++) {
+      for (var d = trips[i].entry; d <= trips[i].exit; d++) set[d] = true;
+    }
+    return set;
+  }
+  // Days used in the 180-day window ending on `refDay` (window = refDay-179 .. refDay)
+  function daysUsedOn(refDay, set) {
+    var c = 0, start = refDay - (WINDOW - 1);
+    for (var d = start; d <= refDay; d++) if (set[d]) c++;
+    return c;
+  }
+  // Longest continuous stay starting `startDay` without breaching the limit on any day
+  function maxContinuousStay(startDay, set) {
+    var sim = Object.create(null), d;
+    for (d in set) sim[d] = true;
+    var stay = 0;
+    for (d = startDay; d < startDay + LIMIT; d++) {
+      sim[d] = true;
+      if (daysUsedOn(d, sim) > LIMIT) break;
+      stay++;
+    }
+    return stay;
+  }
+
+  // ---------- Toast ----------
+  var toastEl = document.getElementById('toast'), toastTimer = null;
+  function showToast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('show'); }, 2400);
+  }
+
+  // ---------- Render ----------
+  var $ = function (id) { return document.getElementById(id); };
+
+  function render() {
+    var today = todayNum();
+    var winStart = today - (WINDOW - 1);
+    var set = presenceSet();
+    var used = daysUsedOn(today, set);
+    var left = Math.max(0, LIMIT - used);
+
+    $('todayLabel').textContent = fmtShort(today);
+    $('daysUsed').textContent = used;
+    $('daysLeft').textContent = left;
+
+    // Badge + bar
+    var badge = $('badge'), fill = $('barFill');
+    var state = used >= 85 ? 'crit' : used >= 75 ? 'warn' : 'safe';
+    badge.className = 'badge ' + state;
+    badge.textContent = state === 'crit' ? (used > LIMIT ? 'Over limit' : 'Critical')
+                      : state === 'warn' ? 'Warning' : 'Safe';
+    fill.className = 'bar-fill ' + (state === 'safe' ? '' : state);
+    fill.style.transform = 'scaleX(' + Math.min(1, used / LIMIT) + ')';
+
+    // Counted days in window, sorted
+    var counted = [];
+    for (var d = winStart; d <= today; d++) if (set[d]) counted.push(d);
+
+    // Next free-up: earliest counted day leaves the window on day+180
+    $('nextFree').textContent = counted.length ? fmtTiny(counted[0] + WINDOW) : '—';
+    // Fully reset: last counted day leaves the window
+    $('fullReset').textContent = counted.length ? fmtTiny(counted[counted.length - 1] + WINDOW) : '—';
+    // Max continuous stay entering today
+    var maxStay = maxContinuousStay(today, set);
+    $('maxStay').innerHTML = maxStay + ' <small>day' + (maxStay === 1 ? '' : 's') + '</small>';
+
+    renderStrip(winStart, today, counted);
+    renderCounted(winStart, today, set);
+    renderTrips(winStart, today, set);
+  }
+
+  function renderStrip(winStart, today, counted) {
+    var strip = $('strip');
+    strip.querySelectorAll('.seg').forEach(function (s) { s.remove(); });
+    // contiguous runs → absolutely positioned segments
+    var i = 0;
+    while (i < counted.length) {
+      var runStart = counted[i], runEnd = runStart;
+      while (i + 1 < counted.length && counted[i + 1] === counted[i] + 1) { i++; runEnd = counted[i]; }
+      i++;
+      var seg = document.createElement('div');
+      seg.className = 'seg';
+      var l = ((runStart - winStart) / WINDOW) * 100;
+      var w = ((runEnd - runStart + 1) / WINDOW) * 100;
+      seg.style.left = l + '%';
+      seg.style.width = Math.max(w, 0.6) + '%';
+      strip.appendChild(seg);
+    }
+    $('windowRange').textContent = '';
+    $('windowStart').textContent = fmtTiny(winStart);
+  }
+
+  function renderCounted(winStart, today, set) {
+    var list = $('countedList');
+    list.innerHTML = '';
+    var any = false;
+    // Per-trip overlap with window
+    var sorted = trips.slice().sort(function (a, b) { return a.entry - b.entry; });
+    sorted.forEach(function (t) {
+      var s = Math.max(t.entry, winStart), e = Math.min(t.exit, today);
+      if (e < s) return;
+      any = true;
+      var row = document.createElement('div');
+      row.className = 'counted-row';
+      var label = t.country ? '<span class="country">' + escapeHtml(t.country) + '</span>' : '';
+      row.innerHTML = '<span>' + label + '<span class="dates">' + fmtTiny(s) + ' – ' + fmtTiny(e) + '</span></span>' +
+                      '<span class="n">' + (e - s + 1) + 'd</span>';
+      list.appendChild(row);
+    });
+    if (!any) {
+      var note = document.createElement('div');
+      note.className = 'empty-note';
+      note.textContent = 'No days counting in the current window.';
+      list.appendChild(note);
+    }
+  }
+
+  function renderTrips(winStart, today, set) {
+    var list = $('tripList');
+    list.innerHTML = '';
+    var sorted = trips.slice().sort(function (a, b) { return b.entry - a.entry; });
+    $('tripCount').textContent = sorted.length ? sorted.length + ' total' : '';
+    if (!sorted.length) {
+      var note = document.createElement('div');
+      note.className = 'empty-note';
+      note.textContent = 'No trips yet. Add one above or import a CSV.';
+      list.appendChild(note);
+      return;
+    }
+    sorted.forEach(function (t) {
+      var row = document.createElement('div');
+      row.className = 'trip';
+      row.dataset.id = t.id;
+      var inWindow = t.exit >= winStart && t.entry <= today;
+      var current = t.entry <= today && t.exit >= today;
+      var future = t.entry > today;
+      var days = t.exit - t.entry + 1;
+      var name = t.country || 'Schengen';
+      var sub = fmtShort(t.entry) + ' – ' + fmtShort(t.exit);
+      if (current) sub += ' · ongoing';
+      else if (future) sub += ' · upcoming';
+      row.innerHTML =
+        '<div class="dot' + (current ? ' current' : inWindow ? ' active-window' : '') + '"></div>' +
+        '<div class="info"><div class="name">' + escapeHtml(name) + '</div><div class="dates">' + sub + '</div></div>' +
+        '<div class="days">' + days + 'd</div>' +
+        '<div class="actions">' +
+          '<button type="button" class="small" data-act="edit">Edit</button>' +
+          '<button type="button" class="danger-text" data-act="del">Delete</button>' +
+        '</div>';
+      list.appendChild(row);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // ---------- Trip CRUD ----------
+  var form = $('tripForm');
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var entry = parseISO($('entry').value);
+    var exit = parseISO($('exit').value);
+    if (entry === null || exit === null) { showToast('Enter both dates'); return; }
+    if (exit < entry) { showToast('Exit date is before entry date'); return; }
+    var country = $('country').value.trim();
+    if (editingId !== null) {
+      var t = trips.find(function (x) { return x.id === editingId; });
+      if (t) { t.entry = entry; t.exit = exit; t.country = country; }
+      showToast('Trip updated');
+      exitEditMode();
+    } else {
+      trips.push({ id: Date.now() + Math.random(), entry: entry, exit: exit, country: country });
+      showToast('Trip added');
+      form.reset();
+    }
+    saveTrips();
+    render();
+  });
+
+  function enterEditMode(t) {
+    editingId = t.id;
+    $('entry').value = fmtISO(t.entry);
+    $('exit').value = fmtISO(t.exit);
+    $('country').value = t.country || '';
+    $('formTitle').textContent = 'Edit trip';
+    $('submitBtn').textContent = 'Save changes';
+    $('cancelEdit').style.display = '';
+    form.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' });
+  }
+  function exitEditMode() {
+    editingId = null;
+    form.reset();
+    $('formTitle').textContent = 'Add trip';
+    $('submitBtn').textContent = 'Add trip';
+    $('cancelEdit').style.display = 'none';
+  }
+  $('cancelEdit').addEventListener('click', exitEditMode);
+
+  $('tripList').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    var row = btn.closest('.trip');
+    var id = parseFloat(row.dataset.id);
+    var t = trips.find(function (x) { return x.id === id; });
+    if (!t) return;
+    if (btn.dataset.act === 'edit') {
+      enterEditMode(t);
+    } else {
+      trips = trips.filter(function (x) { return x.id !== id; });
+      if (editingId === id) exitEditMode();
+      saveTrips();
+      row.classList.add('removing');
+      var done = function () { render(); };
+      matchMedia('(prefers-reduced-motion: reduce)').matches ? done() : setTimeout(done, 180);
+      showToast('Trip deleted');
+    }
+  });
+
+  // ---------- CSV ----------
+  $('exportBtn').addEventListener('click', function () {
+    if (!trips.length) { showToast('No trips to export'); return; }
+    var lines = ['entry,exit,country'];
+    trips.slice().sort(function (a, b) { return a.entry - b.entry; }).forEach(function (t) {
+      var c = t.country || '';
+      if (/[",\n]/.test(c)) c = '"' + c.replace(/"/g, '""') + '"';
+      lines.push(fmtDMY(t.entry) + ',' + fmtDMY(t.exit) + ',' + c);
+    });
+    var blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'schengen-trips.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    showToast('Exported ' + trips.length + ' trip' + (trips.length === 1 ? '' : 's'));
+  });
+
+  $('importBtn').addEventListener('click', function () { $('fileInput').click(); });
+  $('fileInput').addEventListener('change', function () {
+    var file = this.files[0];
+    this.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result);
+      var rows = parseCsv(text);
+      var added = 0, skipped = 0;
+      rows.forEach(function (cols, idx) {
+        if (!cols.length || cols.every(function (c) { return !c.trim(); })) return;
+        var entry = parseDMY(cols[0]);
+        var exit = parseDMY(cols[1] || '');
+        if (entry === null || exit === null) {
+          // tolerate a header row
+          if (idx === 0) return;
+          skipped++;
+          return;
+        }
+        if (exit < entry) { skipped++; return; }
+        var country = (cols[2] || '').trim();
+        // skip exact duplicates
+        var dup = trips.some(function (t) { return t.entry === entry && t.exit === exit; });
+        if (dup) { skipped++; return; }
+        trips.push({ id: Date.now() + Math.random() + added, entry: entry, exit: exit, country: country });
+        added++;
+      });
+      if (added) { saveTrips(); render(); }
+      showToast(added
+        ? 'Imported ' + added + ' trip' + (added === 1 ? '' : 's') + (skipped ? ' · ' + skipped + ' skipped' : '')
+        : 'No valid trips found in file');
+    };
+    reader.readAsText(file);
+  });
+
+  // Minimal CSV parser with quoted-field support
+  function parseCsv(text) {
+    var rows = [], row = [], cur = '', inQ = false;
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i++; }
+          else inQ = false;
+        } else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ',') { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cur); cur = '';
+        rows.push(row); row = [];
+      } else cur += ch;
+    }
+    if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+
+  // ---------- Cloud sync (JSONBin.io) ----------
+  var SYNC_KEY = 'schengen-sync-v1';
+  var API = 'https://api.jsonbin.io/v3/b';
+  // {apiKey, binId, updatedAt, dirty}
+  var sync = (function () {
+    try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || {}; } catch (e) { return {}; }
+  })();
+  function saveSyncState() {
+    try { localStorage.setItem(SYNC_KEY, JSON.stringify(sync)); } catch (e) {}
+  }
+
+  var syncTimer = null, syncing = false;
+  function setSyncUI(state, text) {
+    $('syncStatus').className = 'sync ' + state;
+    $('syncText').textContent = text;
+  }
+  function refreshSyncUI() {
+    if (!sync.apiKey) setSyncUI('', 'Sync off');
+    else if (!navigator.onLine) setSyncUI('', 'Offline');
+    else if (sync.dirty) setSyncUI('syncing', 'Syncing…');
+    else setSyncUI('synced', 'Synced');
+    if (sync.binId) {
+      $('syncIdRow').style.display = '';
+      $('syncIdCode').textContent = sync.binId;
+    } else {
+      $('syncIdRow').style.display = 'none';
+    }
+  }
+  function syncHeaders(extra) {
+    var h = { 'Content-Type': 'application/json', 'X-Master-Key': sync.apiKey };
+    if (extra) for (var k in extra) h[k] = extra[k];
+    return h;
+  }
+  function payload() {
+    return JSON.stringify({ trips: trips, updatedAt: sync.updatedAt || Date.now() });
+  }
+  function validTrips(arr) {
+    return Array.isArray(arr) ? arr.filter(function (t) {
+      return t && typeof t.entry === 'number' && typeof t.exit === 'number' && t.exit >= t.entry;
+    }) : null;
+  }
+  function scheduleSync() {
+    refreshSyncUI();
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncNow, 600);
+  }
+  function syncNow() {
+    if (!sync.apiKey || syncing) return;
+    if (!navigator.onLine) { refreshSyncUI(); return; }
+    syncing = true;
+    setSyncUI('syncing', 'Syncing…');
+    var sentAt = sync.updatedAt;   // clear dirty only if nothing changed mid-flight
+    var done = function (ok) {
+      syncing = false;
+      if (ok) { refreshSyncUI(); if (sync.dirty) syncNow(); }
+      else setSyncUI('error', 'Sync error');
+    };
+    if (!sync.binId) {
+      // First device with this key: create the bin
+      fetch(API, {
+        method: 'POST',
+        headers: syncHeaders({ 'X-Bin-Name': 'schengen-tracker', 'X-Bin-Private': 'true' }),
+        body: payload()
+      })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) {
+          sync.binId = j.metadata.id;
+          if (sync.updatedAt === sentAt) sync.dirty = false;
+          saveSyncState();
+          done(true);
+        })
+        .catch(function () { done(false); });
+    } else if (sync.dirty) {
+      // Push local changes
+      fetch(API + '/' + sync.binId, { method: 'PUT', headers: syncHeaders(), body: payload() })
+        .then(function (r) {
+          if (!r.ok) throw 0;
+          if (sync.updatedAt === sentAt) sync.dirty = false;
+          saveSyncState();
+          done(true);
+        })
+        .catch(function () { done(false); });
+    } else {
+      // Pull: adopt remote only if it is newer than what we have
+      fetch(API + '/' + sync.binId + '/latest', { headers: syncHeaders() })
+        .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+        .then(function (j) {
+          var rec = j.record || {};
+          var remote = validTrips(rec.trips);
+          if (remote && (rec.updatedAt || 0) > (sync.updatedAt || 0) && !sync.dirty) {
+            trips = remote;
+            sync.updatedAt = rec.updatedAt;
+            saveSyncState();
+            saveTrips(true);
+            if (editingId !== null) exitEditMode();
+            render();
+          }
+          done(true);
+        })
+        .catch(function () { done(false); });
+    }
+  }
+
+  // Settings handlers
+  $('apiKeyInput').value = sync.apiKey || '';
+  $('saveKeyBtn').addEventListener('click', function () {
+    var k = $('apiKeyInput').value.trim();
+    sync.apiKey = k || undefined;
+    if (!k) { sync.binId = undefined; sync.dirty = false; }
+    saveSyncState();
+    refreshSyncUI();
+    if (k) {
+      if (trips.length && sync.binId) sync.dirty = true;
+      showToast('Key saved');
+      syncNow();
+    } else {
+      showToast('Sync turned off');
+    }
+  });
+  $('copyIdBtn').addEventListener('click', function () {
+    var id = sync.binId || '';
+    var fallback = function () {
+      var ta = document.createElement('textarea');
+      ta.value = id;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); showToast('Sync ID copied'); }
+      catch (e) { showToast('Copy failed'); }
+      ta.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(id).then(function () { showToast('Sync ID copied'); }, fallback);
+    } else fallback();
+  });
+  $('linkBtn').addEventListener('click', function () {
+    var id = $('linkIdInput').value.trim();
+    if (!id) { showToast('Paste a sync ID first'); return; }
+    if (!sync.apiKey) { showToast('Save your API key first'); return; }
+    sync.binId = id;
+    sync.dirty = false;
+    sync.updatedAt = 0;   // remote wins on the next pull
+    saveSyncState();
+    $('linkIdInput').value = '';
+    refreshSyncUI();
+    showToast('Linked — pulling trips…');
+    syncNow();
+  });
+
+  window.addEventListener('online', function () { refreshSyncUI(); syncNow(); });
+  window.addEventListener('offline', refreshSyncUI);
+
+  // ---------- Boot ----------
+  refreshSyncUI();
+  if (sync.apiKey) syncNow();
+  render();
+  // Refresh at midnight / when returning to the tab after a day change
+  var lastDay = todayNum();
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    if (todayNum() !== lastDay) { lastDay = todayNum(); render(); }
+    syncNow();
+  });
+})();
+</script>
+</body>
+</html>
